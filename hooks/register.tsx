@@ -40,6 +40,9 @@ const THEMES: Record<ThemeName, Palette> = {
 }
 const THEME_NAMES = Object.keys(THEMES) as ThemeName[]
 
+const nextTheme = (current: ThemeName): ThemeName =>
+  THEME_NAMES[(THEME_NAMES.indexOf(current) + 1) % THEME_NAMES.length] ?? 'aurora'
+
 // ---------- formatting ----------
 
 const fmtTokens = (n?: number) =>
@@ -72,6 +75,12 @@ const levelColor = (pal: Palette, percent: number, warnAt: number) =>
 async function savePrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
   await update($, prefs, fn)
   await $.store.set(STORE_PREFS, await read($, prefs))
+}
+
+async function cycleTheme($: EngineInterface): Promise<ThemeName> {
+  const to = nextTheme((await read($, prefs)).theme)
+  await savePrefs($, p => ({ ...p, theme: to }))
+  return to
 }
 
 async function refresh($: EngineInterface) {
@@ -126,7 +135,7 @@ const HELP = [
   '/statusbar show|hide <context|cost|activity|all>',
   '/statusbar on | off            show or hide the whole band',
   '/statusbar compact | full      switch layout',
-  '/statusbar theme [name]        list or set a theme (' + THEME_NAMES.join(', ') + ')',
+  '/statusbar theme [name|next]   list, set or cycle a theme (' + THEME_NAMES.join(', ') + '); or press ◐ in the band',
   '/statusbar warn context <pct>  context toast threshold (0 turns it off)',
   '/statusbar warn cost <usd>     cost toast threshold; also warns at 2x and 4x (0 turns it off)',
   '/statusbar reset               restore defaults',
@@ -179,6 +188,7 @@ async function runCommand($: EngineInterface, args: string): Promise<string> {
       return `Layout set to ${verb}.`
     case 'theme': {
       if (!a) return `Themes: ${THEME_NAMES.join(', ')}. Current: ${(await read($, prefs)).theme}.`
+      if (a === 'next') return `Theme set to ${await cycleTheme($)}.`
       if (!THEME_NAMES.includes(a as ThemeName)) return `Unknown theme "${a}". Pick one of ${THEME_NAMES.join(', ')}.`
       await savePrefs($, p => ({ ...p, theme: a as ThemeName }))
       return `Theme set to ${a}.`
@@ -306,7 +316,20 @@ export const register: Register = on => {
     if (e.props.hasSurvey || p.isHidden) return next(e)
     if (!p.showContext && !p.showCost && !p.showActivity) return next(e)
 
-    const { Box, Text, Progress } = $.ui.resolve(e)
+    const { Box, Text, Progress, Button } = $.ui.resolve(e)
+    const themeButton = (
+      <Button
+        key="theme"
+        hotkey="t"
+        dimColor
+        onPress={async () => {
+          const to = await cycleTheme($)
+          $.ui.toast(`pulse-bar theme: ${to}`)
+        }}
+      >
+        ◐ <Text color={THEMES[p.theme].accent}>{p.theme}</Text>
+      </Button>
+    )
     const pal = THEMES[p.theme]
     const s = await read($, snapshot)
     const live = await read($, running)
@@ -347,6 +370,8 @@ export const register: Register = on => {
         <Box>
           <Text color={pal.accent} bold>◆ </Text>
           <Text color={pal.label} wrap="truncate-end">{bits.join('  │  ')}</Text>
+          <Text>  </Text>
+          {themeButton}
         </Box>
       )
     }
@@ -384,6 +409,7 @@ export const register: Register = on => {
             </Text>
           </Box>
         )}
+        {themeButton}
       </Box>
     )
   })

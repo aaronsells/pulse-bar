@@ -156,3 +156,32 @@ test('elapsed time reads in minutes past a minute', async ($, on) => {
   await clock.advance(5_000)
   await pending
 })
+
+test('the ◐ button cycles themes and remembers the choice', async ($, on) => {
+  const toasts: string[] = []
+  engine(on, toasts)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  for (const surface of ['terminal', 'desktop', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect((await ui.find({ type: 'Button', key: 'theme' }))?.text).toMatch(/aurora/)
+    await ui.unmount()
+  }
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'theme' })
+  expect(toasts).toContain('pulse-bar theme: ember')
+  await ui.unmount()
+
+  const again = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await again.find({ type: 'Button', key: 'theme' }))?.text).toMatch(/ember/)
+  await again.press({ key: 'theme' })
+  await again.press({ key: 'theme' })
+  await again.press({ key: 'theme' })
+  await again.unmount()
+
+  const status = await $.command.run(run(''))
+  expect(JSON.stringify(status)).toMatch(/aurora theme/)
+  const next = await $.command.run(run('theme next'))
+  expect(JSON.stringify(next)).toMatch(/Theme set to ember/)
+})

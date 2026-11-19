@@ -10,7 +10,7 @@ A status band above the Claude Code prompt. It shows a context window meter with
 | `/statusbar show\|hide context\|cost\|activity\|all` | Turn sections on or off |
 | `/statusbar on\|off` | Show or hide the whole band |
 | `/statusbar compact\|full` | One-line layout, or the full layout |
-| `/statusbar theme aurora\|ember\|ocean\|mono` | Color theme |
+| `/statusbar theme aurora\|ember\|ocean\|mono\|next` | Color theme (or press the ◐ button in the band, hotkey `t` when the band has focus) |
 | `/statusbar warn context <pct>` | Context toast threshold (0 = off) |
 | `/statusbar warn cost <usd>` | Cost toast threshold (0 = off) |
 | `/statusbar reset` | Restore defaults |
