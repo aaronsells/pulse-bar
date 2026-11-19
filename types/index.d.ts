@@ -32,6 +32,7 @@ declare module 'claude-code' {
       running: Shaped<RunningTool[]>
       last: Shaped<LastTool | null>
       toolCount: number
+      tick: number
       agents: string[]
       prefs: Shaped<Prefs>
       warned: Shaped<Warned>

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { LastTool, Prefs, RunningTool, Snapshot, ThemeName, Warned } from '../types'
 
@@ -22,6 +22,8 @@ const snapshot = atom({ plugin: 'pulse-bar', key: 'snapshot' } as const, null, {
 const running = atom({ plugin: 'pulse-bar', key: 'running' } as const, [], { shape: 'run-1' })
 const last = atom({ plugin: 'pulse-bar', key: 'last' } as const, null, { shape: 'last-1' })
 const toolCount = atom({ plugin: 'pulse-bar', key: 'toolCount' } as const, 0)
+// Bumped once a second while a tool runs, so the band redraws its timers.
+const tick = atom({ plugin: 'pulse-bar', key: 'tick' } as const, 0)
 const agents = atom({ plugin: 'pulse-bar', key: 'agents' } as const, [])
 const prefs = atom({ plugin: 'pulse-bar', key: 'prefs' } as const, DEFAULT_PREFS, { shape: 'prefs-1' })
 const warned = atom({ plugin: 'pulse-bar', key: 'warned' } as const, { context: [], cost: [] }, {
@@ -45,6 +47,14 @@ const fmtTokens = (n?: number) =>
 
 const fmtUsd = (usd?: number) =>
   usd === undefined ? 'n/a' : usd < 1 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`
+
+const fmtElapsed = (ms: number) => {
+  const s = Math.floor(ms / 1000)
+  if (s < 1) return ''
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
+}
 
 const fmtMs = (ms: number) =>
   ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60_000)}m`
@@ -198,6 +208,31 @@ async function runCommand($: EngineInterface, args: string): Promise<string> {
   }
 }
 
+// ---------- live timer ----------
+
+// The module's own variable: a reload starts it over, and session.start clears it.
+let ticker: Timer | null = null
+
+function stopTicker() {
+  ticker?.cancel()
+  ticker = null
+}
+
+function startTicker($: EngineInterface) {
+  if (ticker) return
+  try {
+    ticker = $.clock.every(1000, () => {
+      void (async () => {
+        const list = await read($, running)
+        if (list.length === 0) return stopTicker()
+        await update($, tick, n => n + 1)
+      })().catch(() => undefined)
+    })
+  } catch {
+    ticker = null
+  }
+}
+
 // ---------- hooks ----------
 
 export const register: Register = on => {
@@ -215,6 +250,7 @@ export const register: Register = on => {
     }
     // A reload starts the module over; tools that were mid-flight are gone.
     await update($, running, () => [])
+    stopTicker()
     await refresh($).catch(() => undefined)
 
     return next(e)
@@ -230,6 +266,7 @@ export const register: Register = on => {
       agentId: e.agentId,
     }
     await update($, running, list => [...list, call].slice(-20))
+    startTicker($)
     let isOk = false
     try {
       const result = await next(e)
@@ -241,6 +278,7 @@ export const register: Register = on => {
         const ms = Math.round((await $.clock.now()) - call.startedAt)
         const done: LastTool = { tool: call.tool, ms, isOk }
         await update($, running, list => list.filter(one => one.id !== call.id))
+        if ((await read($, running)).length === 0) stopTicker()
         await update($, last, () => done)
         await update($, toolCount, n => n + 1)
         void refresh($).catch(() => undefined)
@@ -279,12 +317,18 @@ export const register: Register = on => {
     const ctxColor = levelColor(pal, pct, p.contextWarn || 101)
     const costHot = p.costWarn > 0 && (s?.usd ?? 0) >= p.costWarn
     const working = e.props.isWorking
+    await read($, tick) // redraw on each tick
+    const nowMs = live.length > 0 ? await $.clock.now() : 0
 
     const activityText = () => {
       const parts: string[] = []
       if (live.length > 0) {
-        const names = [...new Set(live.map(t => t.tool))]
-        parts.push(`▶ ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3}` : ''}`)
+        const shown = live.slice(-3).map(t => {
+          const elapsed = fmtElapsed(nowMs - t.startedAt)
+          return elapsed ? `${t.tool} ${elapsed}` : t.tool
+        })
+        const more = live.length > 3 ? ` +${live.length - 3}` : ''
+        parts.push(`▶ ${shown.join(' · ')}${more}`)
       } else if (working) {
         parts.push('▶ thinking')
       }

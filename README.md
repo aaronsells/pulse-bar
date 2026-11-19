@@ -1,6 +1,6 @@
 # pulse-bar
 
-A status band above the Claude Code prompt. It shows a context window meter with token counts, the session's running cost, and live activity: the tool running now, the last tool with its duration and whether it succeeded, the number of running subagents, and the total number of tool calls. Toasts warn you when context passes 80% and 95%, and when cost passes a threshold ($5 by default, again at 2x and 4x).
+A status band above the Claude Code prompt. It shows a context window meter with token counts, the session's running cost, and live activity: each running tool with a live timer (for example `▶ Bash 12s`), the last tool with its duration and whether it succeeded, the number of running subagents, and the total number of tool calls. Toasts warn you when context passes 80% and 95%, and when cost passes a threshold ($5 by default, again at 2x and 4x).
 
 ## /statusbar
 

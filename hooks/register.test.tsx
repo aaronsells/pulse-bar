@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const BAND = {
   plugin: 'pulse-bar',
@@ -29,7 +29,7 @@ const USAGE = {
 }
 
 // Stand in for the engine beneath the plugin.
-function engine(on: any, toasts: string[]) {
+function engine(on: any, toasts: string[], own: { clock?: boolean; tool?: boolean } = {}) {
   on('command.register', () => ({ value: { command: 'statusbar' } }))
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('session.usage', () => ({ value: USAGE }))
@@ -37,7 +37,7 @@ function engine(on: any, toasts: string[]) {
     toasts.push(String(e.text ?? e.message ?? JSON.stringify(e)))
     return { value: undefined }
   })
-  on('tool.call', () => ({ result: {} }))
+  if (!own.tool) on('tool.call', () => ({ result: {} }))
   const store = new Map<string, unknown>()
   on('store.get', (_: unknown, e: { key: string }) => ({ value: store.get(e.key) }))
   on('store.set', (_: unknown, e: { key: string; value: unknown }) => {
@@ -45,7 +45,7 @@ function engine(on: any, toasts: string[]) {
     return { value: undefined }
   })
   let now = 1_000
-  on('clock.now', () => ({ value: (now += 250) }))
+  if (!own.clock) on('clock.now', () => ({ value: (now += 250) }))
 }
 
 test('the band shows context, cost and the last tool on every surface', async ($, on) => {
@@ -107,4 +107,52 @@ test('/statusbar off hides the band', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
   await ui.unmount()
+})
+
+test('a running tool shows a live timer, then its final duration', async ($, on) => {
+  engine(on, [], { clock: true, tool: true })
+  const clock = mock.clock(on, { now: 50_000 })
+  // The tool takes 20 seconds of mocked time.
+  on('tool.call', async () => {
+    await clock.sleep(20_000)
+    return { result: {} }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const pending = $.tool.call({ tool: 'Bash', command: 'sleep 20' })
+  await clock.advance(12_000)
+
+  for (const surface of ['terminal', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect((await ui.find({ type: 'Text', text: /▶/ }))?.text).toMatch(/▶ Bash 12s/)
+    await ui.unmount()
+  }
+
+  await clock.advance(8_000)
+  await pending
+  const after = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const line = (await after.find({ type: 'Text', text: /last Bash/ }))?.text
+  expect(line).toMatch(/last Bash 20\.0s ✓/)
+  expect(line).not.toMatch(/▶/)
+  await after.unmount()
+})
+
+test('elapsed time reads in minutes past a minute', async ($, on) => {
+  engine(on, [], { clock: true, tool: true })
+  const clock = mock.clock(on, { now: 0 })
+  on('tool.call', async () => {
+    await clock.sleep(130_000)
+    return { result: {} }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const pending = $.tool.call({ tool: 'Agent', prompt: 'x', description: 'x', subagent_type: 'general-purpose' } as never)
+  await clock.advance(125_000)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /▶/ }))?.text).toMatch(/▶ Agent 2m 05s/)
+  await ui.unmount()
+
+  await clock.advance(5_000)
+  await pending
 })
