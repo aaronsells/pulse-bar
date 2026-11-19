@@ -1,0 +1,8 @@
+{
+  "name": "pulse-bar",
+  "version": "0.1.0",
+  "description": "A themed status band above the prompt: context meter, session cost, live tool and agent activity, threshold toasts, and a /statusbar command.",
+  "author": { "name": "Aaron Sells" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
